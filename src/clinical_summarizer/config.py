@@ -56,9 +56,17 @@ class Settings(BaseSettings):
     app_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     # -------------------------------------------------------------------------
-    # Google Gemini (opcional por enquanto, será usado em fases futuras)
+    # Google Gemini (opcional)
     # -------------------------------------------------------------------------
     google_api_key: str | None = None
+
+    # -------------------------------------------------------------------------
+    # Anthropic Claude (para geração de resumos)
+    # -------------------------------------------------------------------------
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-4-20250514"
+    anthropic_temperature: float = 0.3
+    anthropic_max_tokens: int = 4096
 
     @property
     def postgres_dsn(self) -> str:

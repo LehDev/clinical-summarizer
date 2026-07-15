@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from clinical_summarizer.api.routes import health_router, visits_router
+from clinical_summarizer.api.routes import health_router, summaries_router, visits_router
 from clinical_summarizer.config import get_settings
 from clinical_summarizer.repositories import close_pool, init_pool
 

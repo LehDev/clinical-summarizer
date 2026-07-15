@@ -89,3 +89,64 @@ class HealthResponse(BaseModel):
 
     status: str = Field(description="Status da aplicação")
     database: str = Field(description="Status da conexão com banco")
+
+
+class SummaryRequest(BaseModel):
+    """
+    Schema de request para geração de resumo clínico.
+
+    O resumo será gerado a partir das visitas do paciente
+    no período especificado.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "patient_id": "899",
+                "start_date": "2022-10-01",
+                "end_date": "2022-10-31",
+            }
+        },
+    )
+
+    patient_id: str = Field(
+        description="ID original do paciente (será convertido para hash)",
+        min_length=1,
+    )
+    start_date: date = Field(description="Data inicial do período")
+    end_date: date = Field(description="Data final do período")
+
+
+class SummaryResponse(BaseModel):
+    """
+    Schema de resposta para resumo clínico gerado.
+
+    Contém o resumo gerado e metadados sobre a geração.
+    """
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "summary_id": "550e8400-e29b-41d4-a716-446655440000",
+                "patient_id": "f6e5d4c3b2a1...",
+                "summary_text": "Paciente apresentou quadro de...",
+                "visit_count": 3,
+                "llm_model": "claude-sonnet-4-20250514",
+                "llm_total_tokens": 1500,
+                "generation_duration_ms": 2500,
+                "created_at": "2025-06-15T10:30:00",
+            }
+        },
+    )
+
+    summary_id: str = Field(description="UUID único do resumo")
+    patient_id: str = Field(description="Hash do paciente")
+    summary_text: str = Field(description="Texto do resumo gerado")
+    visit_count: int = Field(description="Quantidade de visitas usadas")
+    filter_start_date: date = Field(description="Data inicial do filtro")
+    filter_end_date: date = Field(description="Data final do filtro")
+    llm_model: str = Field(description="Modelo LLM usado")
+    llm_total_tokens: int | None = Field(description="Total de tokens usados")
+    generation_duration_ms: int | None = Field(description="Tempo de geração em ms")
+    created_at: datetime | None = Field(description="Data de criação")

@@ -14,6 +14,10 @@ from clinical_summarizer.repositories.patient_repository import (
     PatientRepository,
     get_patient_repository,
 )
+from clinical_summarizer.repositories.summary_repository import (
+    SummaryRepository,
+    get_summary_repository,
+)
 from clinical_summarizer.repositories.visit_repository import (
     VisitRepository,
     get_visit_repository,
@@ -27,7 +31,9 @@ __all__ = [
     "get_connection",
     # Repositórios
     "PatientRepository",
+    "SummaryRepository",
     "VisitRepository",
     "get_patient_repository",
+    "get_summary_repository",
     "get_visit_repository",
 ]

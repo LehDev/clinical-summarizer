@@ -67,6 +67,9 @@ uv run uvicorn clinical_summarizer.main:app --reload
 uvicorn clinical_summarizer.main:app --reload
 ```
 
+### Se ocorrer erros rode um um terminal externo do VSCode
+source .venv/bin/activate && uvicorn clinical_summarizer.main:app --reload
+
 A API estará disponível em:
 - **Swagger UI:** http://localhost:8000/docs
 - **ReDoc:** http://localhost:8000/redoc
