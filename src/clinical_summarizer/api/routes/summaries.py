@@ -40,12 +40,19 @@ SummaryServiceDep = Annotated[SummaryService, Depends(get_summary_service)]
     Gera um resumo clínico para um paciente com base nas visitas
     do período especificado.
 
-    O resumo é gerado pelo LLM (Anthropic Claude) e salvo no banco de dados.
+    **Fluxo completo (run_etl=true, padrão):**
+    1. Executa o ETL (Pentaho) para carregar dados atualizados
+    2. Busca visitas do paciente no período
+    3. Gera resumo via LLM (Anthropic Claude)
+    4. Salva resumo no banco de dados
 
     **Requisitos:**
     - ANTHROPIC_API_KEY configurada no servidor
+    - Pentaho instalado (se run_etl=true)
     - Paciente deve existir no sistema
     - Deve haver pelo menos uma visita no período
+
+    **Timeout:** ~5 minutos (ETL) + tempo de geração do LLM
     """,
     responses={
         201: {"description": "Resumo gerado com sucesso"},
@@ -75,6 +82,7 @@ def generate_summary(
             patient_id=request.patient_id,
             start_date=request.start_date,
             end_date=request.end_date,
+            run_etl=request.run_etl,
         )
 
         return SummaryResponse(

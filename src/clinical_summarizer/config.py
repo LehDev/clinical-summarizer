@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # Anthropic Claude (para geração de resumos)
     # -------------------------------------------------------------------------
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-sonnet-4-20250514"
+    anthropic_model: str = "claude-3-5-sonnet-20241022"
     anthropic_temperature: float = 0.3
     anthropic_max_tokens: int = 4096
 

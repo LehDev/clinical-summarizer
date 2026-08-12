@@ -91,12 +91,96 @@ class HealthResponse(BaseModel):
     database: str = Field(description="Status da conexão com banco")
 
 
+class CleanedQuestionResponse(BaseModel):
+    """Schema de resposta para uma questão limpa."""
+
+    question_id: int = Field(description="ID da questão")
+    question_name: str = Field(description="Nome da questão")
+    value: str = Field(description="Valor da resposta")
+    field_type_id: int = Field(description="Tipo do campo")
+
+
+class EvaluationSectionResponse(BaseModel):
+    """Schema de resposta para uma seção de avaliação."""
+
+    section_index: int = Field(description="Índice da seção")
+    fields: dict[str, str] = Field(description="Campos da seção (nome -> valor)")
+
+
+class VisitEvaluationResponse(BaseModel):
+    """Schema de resposta para avaliações de uma única visita."""
+
+    visit_id: str = Field(description="Hash SHA-256 da visita")
+    visit_date: date | None = Field(description="Data da visita")
+    cid_codes: str | None = Field(default=None, description="Códigos CID")
+    cid_names: str | None = Field(default=None, description="Nomes dos CIDs")
+    clinical_evolutions: str | None = Field(default=None, description="Evoluções clínicas")
+    sign_symptoms: str | None = Field(default=None, description="Sinais e sintomas")
+    prescriptions: str | None = Field(default=None, description="Prescrições")
+    evaluation_types: str | None = Field(default=None, description="Tipos de avaliação")
+    total_fields: int = Field(default=0, description="Total de campos")
+    total_filled_fields: int = Field(default=0, description="Total de campos preenchidos")
+    questions_dict: dict[str, str] = Field(
+        default_factory=dict,
+        description="Questões como dicionário (question_name -> value)",
+    )
+    raw_text: str | None = Field(
+        default=None,
+        description="Texto formatado das avaliações",
+    )
+
+
+class PatientEvaluationsResponse(BaseModel):
+    """Schema de resposta para avaliações de todas as visitas de um paciente."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "patient_id": "f6e5d4c3b2a1...",
+                "start_date": "2022-10-01",
+                "end_date": "2022-10-31",
+                "total_visits": 3,
+                "total_visits_with_evaluations": 2,
+                "visits": [
+                    {
+                        "visit_id": "a1b2c3d4e5f6...",
+                        "visit_date": "2022-10-15",
+                        "total_sections": 5,
+                        "total_fields": 50,
+                        "total_filled_fields": 30,
+                        "sections": [
+                            {
+                                "section_index": 0,
+                                "fields": {
+                                    "Nível de Consciência": "Alerta",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+
+    patient_id: str = Field(description="Hash SHA-256 do paciente")
+    start_date: date = Field(description="Data inicial do período")
+    end_date: date = Field(description="Data final do período")
+    total_visits: int = Field(description="Total de visitas no período")
+    total_visits_with_evaluations: int = Field(
+        description="Total de visitas com avaliações preenchidas"
+    )
+    visits: list[VisitEvaluationResponse] = Field(
+        description="Avaliações de cada visita"
+    )
+
+
 class SummaryRequest(BaseModel):
     """
     Schema de request para geração de resumo clínico.
 
     O resumo será gerado a partir das visitas do paciente
-    no período especificado.
+    no período especificado. Por padrão, executa o ETL (Pentaho)
+    antes de gerar o resumo para garantir dados atualizados.
     """
 
     model_config = ConfigDict(
@@ -105,6 +189,7 @@ class SummaryRequest(BaseModel):
                 "patient_id": "899",
                 "start_date": "2022-10-01",
                 "end_date": "2022-10-31",
+                "run_etl": True,
             }
         },
     )
@@ -115,6 +200,10 @@ class SummaryRequest(BaseModel):
     )
     start_date: date = Field(description="Data inicial do período")
     end_date: date = Field(description="Data final do período")
+    run_etl: bool = Field(
+        default=True,
+        description="Se True, executa o ETL (Pentaho) antes de gerar o resumo",
+    )
 
 
 class SummaryResponse(BaseModel):
@@ -150,3 +239,100 @@ class SummaryResponse(BaseModel):
     llm_total_tokens: int | None = Field(description="Total de tokens usados")
     generation_duration_ms: int | None = Field(description="Tempo de geração em ms")
     created_at: datetime | None = Field(description="Data de criação")
+
+
+# =============================================================================
+# ETL Pipeline Schemas
+# =============================================================================
+
+
+class ETLRunRequest(BaseModel):
+    """
+    Schema de request para execução do pipeline ETL.
+
+    Todos os campos são opcionais - se não fornecidos,
+    o pipeline roda com os filtros padrão definidos no job.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "start_date": "2023-01-01",
+                "end_date": "2023-12-31",
+                "patient_id": 899,
+            }
+        },
+    )
+
+    start_date: date | None = Field(
+        default=None,
+        description="Data inicial do filtro (opcional)",
+    )
+    end_date: date | None = Field(
+        default=None,
+        description="Data final do filtro (opcional)",
+    )
+    patient_id: int | None = Field(
+        default=None,
+        description="ID do paciente para filtrar (opcional)",
+    )
+
+
+class ETLRunResponse(BaseModel):
+    """Schema de resposta para execução do pipeline ETL."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "message": "Pipeline executado com sucesso",
+                "execution_id": "550e8400-e29b-41d4-a716-446655440000",
+                "pipeline_name": "ETL_Pipeline",
+                "status": "completed",
+                "records_extracted": 1500,
+                "records_transformed": 1450,
+                "records_loaded_patients": 120,
+                "records_loaded_visits": 1450,
+                "duration_seconds": 45,
+            }
+        },
+    )
+
+    success: bool = Field(description="Se a execução foi bem-sucedida")
+    message: str = Field(description="Mensagem de status")
+    execution_id: str | None = Field(
+        default=None,
+        description="UUID da execução",
+    )
+    pipeline_name: str | None = Field(
+        default=None,
+        description="Nome do pipeline",
+    )
+    status: str | None = Field(
+        default=None,
+        description="Status da execução",
+    )
+    records_extracted: int | None = Field(
+        default=None,
+        description="Registros extraídos",
+    )
+    records_transformed: int | None = Field(
+        default=None,
+        description="Registros transformados",
+    )
+    records_loaded_patients: int | None = Field(
+        default=None,
+        description="Pacientes carregados",
+    )
+    records_loaded_visits: int | None = Field(
+        default=None,
+        description="Visitas carregadas",
+    )
+    duration_seconds: int | None = Field(
+        default=None,
+        description="Duração em segundos",
+    )
+    error_message: str | None = Field(
+        default=None,
+        description="Mensagem de erro (se houver)",
+    )

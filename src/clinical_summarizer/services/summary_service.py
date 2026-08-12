@@ -23,6 +23,7 @@ from clinical_summarizer.repositories import (
     SummaryRepository,
     get_summary_repository,
 )
+from clinical_summarizer.services.etl_service import ETLService, get_etl_service
 from clinical_summarizer.services.visit_service import VisitService, get_visit_service
 
 logger = logging.getLogger(__name__)
@@ -100,19 +101,22 @@ class SummaryService:
     Serviço para geração de resumos clínicos via LLM.
 
     Orquestra:
-    1. Busca de visitas do paciente
-    2. Construção do prompt
-    3. Chamada à API do Anthropic Claude
-    4. Persistência do resumo no banco
+    1. Execução do ETL (Pentaho) para carregar dados frescos
+    2. Busca de visitas do paciente
+    3. Construção do prompt
+    4. Chamada à API do Anthropic Claude
+    5. Persistência do resumo no banco
     """
 
     def __init__(
         self,
         visit_service: VisitService | None = None,
         summary_repository: SummaryRepository | None = None,
+        etl_service: ETLService | None = None,
     ):
         self._visit_service = visit_service or get_visit_service()
         self._summary_repo = summary_repository or get_summary_repository()
+        self._etl_service = etl_service or get_etl_service()
         self._settings = get_settings()
 
         if self._settings.anthropic_api_key:
@@ -127,6 +131,7 @@ class SummaryService:
         patient_id: str,
         start_date: date,
         end_date: date,
+        run_etl: bool = True,
     ) -> Summary:
         """
         Gera um resumo clínico para um paciente.
@@ -135,6 +140,7 @@ class SummaryService:
             patient_id: ID original do paciente.
             start_date: Data inicial do período.
             end_date: Data final do período.
+            run_etl: Se True, executa o ETL antes de buscar dados.
 
         Returns:
             Objeto Summary com o resumo gerado e metadados.
@@ -150,7 +156,23 @@ class SummaryService:
                 "Adicione ao arquivo .env"
             )
 
-        # 1. Buscar visitas do paciente
+        # 1. Executar ETL para carregar dados frescos
+        if run_etl:
+            logger.info("Executando ETL para paciente %s...", patient_id)
+            etl_result = self._etl_service.run_pipeline(
+                start_date=start_date,
+                end_date=end_date,
+                patient_id=int(patient_id),
+            )
+            if etl_result.success:
+                logger.info(
+                    "ETL concluído: %d visitas carregadas",
+                    etl_result.etl_log.records_loaded_visits if etl_result.etl_log else 0,
+                )
+            else:
+                logger.warning("ETL falhou: %s", etl_result.message)
+
+        # 2. Buscar visitas do paciente
         visits = self._visit_service.get_patient_visits(
             patient_id=patient_id,
             start_date=start_date,
