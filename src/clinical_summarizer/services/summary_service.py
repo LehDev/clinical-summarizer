@@ -5,8 +5,10 @@ Coordena a busca de visitas, geração de resumo via Anthropic Claude,
 e persistência do resultado no banco de dados.
 """
 
+import json
 import logging
 import time
+from collections import Counter
 from datetime import date
 from decimal import Decimal
 
@@ -24,11 +26,47 @@ from clinical_summarizer.repositories import (
     get_summary_repository,
 )
 from clinical_summarizer.services.etl_service import ETLService, get_etl_service
+from clinical_summarizer.services.summary_sections import (
+    SUMMARY_CONTENT_SECTIONS,
+    SUMMARY_SECTION_LABELS,
+    VISIT_PERIODS_KEY,
+    parse_summary_sections,
+    parse_visit_periods,
+)
 from clinical_summarizer.services.visit_service import VisitService, get_visit_service
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Você é um assistente médico especializado em análise de prontuários clínicos.
+# Aliases locais para as chaves/rótulos das seções, evitando repetir
+# `SummarySection.X` / `SUMMARY_SECTION_LABELS[...]` ao montar o prompt.
+_PERIOD, _DIAGNOSES, _VISIT_HISTORY, _SYMPTOMS, _OBSERVATIONS = SUMMARY_CONTENT_SECTIONS
+_LABEL = SUMMARY_SECTION_LABELS
+
+_SUMMARY_JSON_EXAMPLE = json.dumps(
+    {
+        **{key: f"<{_LABEL[key]}>" for key in SUMMARY_CONTENT_SECTIONS},
+        VISIT_PERIODS_KEY: [
+            {
+                "label": "Primeira semana",
+                "start_date": "2023-04-01",
+                "end_date": "2023-04-06",
+                "visit_count": 6,
+                "detail": "concentração em 03/04 com 4 visitas",
+            },
+            {
+                "label": "Segunda semana",
+                "start_date": "2023-04-10",
+                "end_date": "2023-04-13",
+                "visit_count": 5,
+                "detail": None,
+            },
+        ],
+    },
+    ensure_ascii=False,
+    indent=2,
+)
+
+SYSTEM_PROMPT = f"""Você é um assistente médico especializado em análise de prontuários clínicos.
 Sua tarefa é gerar resumos clínicos concisos e informativos a partir dos dados de visitas médicas.
 
 Diretrizes:
@@ -37,29 +75,37 @@ Diretrizes:
 3. Destaque diagnósticos (CIDs), sintomas principais e tratamentos prescritos
 4. Identifique padrões ou evolução do quadro clínico
 5. Mantenha a confidencialidade - não adicione informações não presentes nos dados
-6. Use formato estruturado com seções claras
-7. Escreva em português brasileiro
+6. Escreva em português brasileiro
+7. Se as informações forem insuficientes, sugira fazer outra pesquisa alterando as datas para que outras visitas sejam analisadas
 
-Formato do resumo:
-## Resumo Clínico
+Formato de resposta:
+Responda APENAS com um objeto JSON válido (sem texto antes ou depois, sem blocos de
+código markdown), contendo exatamente estas chaves:
 
-### Período Analisado
-[Datas do período]
+- "{_PERIOD}": {_LABEL[_PERIOD]} (datas do período)
+- "{_DIAGNOSES}": {_LABEL[_DIAGNOSES]} (lista de CIDs com descrições)
+- "{_VISIT_HISTORY}": {_LABEL[_VISIT_HISTORY]} (resumo cronológico das visitas)
+- "{_SYMPTOMS}": {_LABEL[_SYMPTOMS]} (sintomas relatados)
+- "{_OBSERVATIONS}": {_LABEL[_OBSERVATIONS]} (outros pontos importantes)
+- "{VISIT_PERIODS_KEY}": lista opcional de objetos com a distribuição de visitas
+  por período dentro do mês analisado, para o frontend renderizar um gráfico
+  (dado estruturado — não repita esses números como texto livre em
+  "{_VISIT_HISTORY}", apenas descreva o histórico normalmente lá).
+  Inclua sempre que houver mais de uma visita no período. Cada objeto deve
+  conter exatamente estas chaves:
+    - "label": rótulo curto do período (ex: "Primeira semana", "Início do mês");
+      não precisa ser literalmente uma semana, use o que descrever melhor
+    - "start_date": data inicial do período, formato "AAAA-MM-DD"
+    - "end_date": data final do período, formato "AAAA-MM-DD"
+    - "visit_count": número inteiro de visitas nesse período
+    - "detail": texto curto opcional destacando concentração em dia(s)
+      específico(s) (ex: "concentração em 03/04 com 4 visitas"), ou null
 
-### Diagnósticos (CID)
-[Lista de CIDs com descrições]
+Cada valor de seção de texto deve ser uma string simples (use "\\n" para quebras
+de linha e "-" para listas).
 
-### Histórico de Atendimentos
-[Resumo cronológico das visitas]
-
-### Sintomas e Queixas Principais
-[Sintomas relatados]
-
-### Tratamentos e Prescrições
-[Medicamentos e procedimentos]
-
-### Observações Relevantes
-[Outros pontos importantes]
+Exemplo de formato (apenas ilustrativo):
+{_SUMMARY_JSON_EXAMPLE}
 """
 
 
@@ -76,19 +122,31 @@ def _format_visit_for_prompt(visit: Visit) -> str:
     if visit.clinical_evolutions:
         parts.append(f"**Evolução Clínica:** {visit.clinical_evolutions}")
 
-    if visit.prescriptions:
-        parts.append(f"**Prescrições:** {visit.prescriptions}")
 
     return "\n".join(parts)
+
+
+def _format_visits_by_day(visits: list[Visit]) -> str:
+    """Conta as visitas por dia e formata a distribuição para o prompt."""
+    counts = Counter(v.visit_date for v in visits if v.visit_date is not None)
+    lines = [
+        f"- {day.strftime('%d/%m/%Y')}: {count} visita(s)"
+        for day, count in sorted(counts.items())
+    ]
+    return "\n".join(lines)
 
 
 def _build_user_prompt(visits: list[Visit], start_date: date, end_date: date) -> str:
     """Constrói o prompt do usuário com os dados das visitas."""
     visits_text = "\n\n".join(_format_visit_for_prompt(v) for v in visits)
+    visits_by_day = _format_visits_by_day(visits)
 
     return f"""Analise os dados das visitas médicas abaixo e gere um resumo clínico estruturado.
 
 ## Dados das Visitas ({len(visits)} visitas entre {start_date} e {end_date})
+
+### Distribuição de Visitas por Dia
+{visits_by_day}
 
 {visits_text}
 
@@ -206,8 +264,28 @@ class SummaryService:
 
         generation_duration_ms = int((time.time() - start_time) * 1000)
 
-        # 4. Extrair resultado
-        summary_text = response.content[0].text
+        # 4. Extrair e validar o resultado estruturado (JSON por seção)
+        llm_text = response.content[0].text
+        try:
+            sections = parse_summary_sections(llm_text)
+        except json.JSONDecodeError as e:
+            logger.error("Resposta do LLM não é um JSON válido: %s", e)
+            raise LLMGenerationError(
+                f"Formato de resposta inválido do LLM: {e}"
+            ) from e
+
+        # Campo estruturado (não é texto livre) com a distribuição de visitas
+        # por período — entradas malformadas são descartadas individualmente
+        # por `parse_visit_periods`, sem invalidar o resumo inteiro.
+        visit_periods = parse_visit_periods(llm_text)
+
+        # Persistimos os dados já estruturados (JSON por seção + períodos)
+        # para que o frontend consiga renderizar cada etapa do resumo e o
+        # gráfico de distribuição separadamente.
+        summary_text = json.dumps(
+            {**sections, VISIT_PERIODS_KEY: [p.to_dict() for p in visit_periods]},
+            ensure_ascii=False,
+        )
 
         # 5. Obter hash do patient_id (mesmo usado nas visitas)
         from clinical_summarizer.utils import hash_id

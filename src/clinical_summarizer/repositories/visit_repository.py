@@ -47,7 +47,6 @@ class VisitRepository:
                 cid_names,
                 clinical_evolutions,
                 sign_symptoms,
-                prescriptions,
                 evaluations_raw,
                 evaluation_types,
                 created_at
@@ -100,7 +99,6 @@ class VisitRepository:
                 cid_names,
                 clinical_evolutions,
                 sign_symptoms,
-                prescriptions,
                 evaluations_raw,
                 evaluation_types,
                 created_at
@@ -139,7 +137,6 @@ class VisitRepository:
             cid_names=row["cid_names"],
             clinical_evolutions=row["clinical_evolutions"],
             sign_symptoms=row["sign_symptoms"],
-            prescriptions=row["prescriptions"],
             evaluations_raw=row["evaluations_raw"],
             evaluation_types=row["evaluation_types"],
             created_at=row["created_at"],

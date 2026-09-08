@@ -22,7 +22,6 @@ class Visit:
         cid_names: Nomes dos CIDs correspondentes
         clinical_evolutions: Texto das evoluções clínicas
         sign_symptoms: Sinais e sintomas relatados
-        prescriptions: Prescrições médicas
         evaluations_raw: Blob JSON com avaliações (não parseado)
         evaluation_types: Tipos de avaliações realizadas
         created_at: Data de criação do registro
@@ -40,7 +39,6 @@ class Visit:
     cid_names: str | None = None
     clinical_evolutions: str | None = None
     sign_symptoms: str | None = None
-    prescriptions: str | None = None
     evaluations_raw: str | None = None
     evaluation_types: str | None = None
     created_at: datetime | None = None

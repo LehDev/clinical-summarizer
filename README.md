@@ -8,6 +8,7 @@ Serviço Python para geração de resumos clínicos automatizados via LLM (Anthr
 - PostgreSQL (com tabelas `patients`, `visits` e `summaries`)
 - [uv](https://docs.astral.sh/uv/) (recomendado) ou pip
 - Chave de API da Anthropic
+- Pentaho Data Integration (Kitchen) instalado localmente — apenas se for usar o ETL (`run_etl=true` ou `POST /etl/run`)
 
 ## Instalação
 
@@ -59,6 +60,12 @@ pip install -e .
    POSTGRES_PORT=5432
    POSTGRES_DB=clinical_data
 
+   # Aplicação
+   APP_PORT=8734
+
+   # Origens do frontend autorizadas a consumir a API (CORS, separadas por vírgula)
+   CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
    # Anthropic Claude (obrigatório para geração de resumos)
    ANTHROPIC_API_KEY=sua_api_key_aqui
    ANTHROPIC_MODEL=claude-sonnet-4-20250514
@@ -72,17 +79,19 @@ pip install -e .
 
 ```bash
 # Com uv
-uv run uvicorn clinical_summarizer.main:app --reload
+uv run uvicorn clinical_summarizer.main:app --reload --port 8734
 
 # Com pip (ambiente virtual ativado)
-source .venv/bin/activate && uvicorn clinical_summarizer.main:app --reload
+source .venv/bin/activate && uvicorn clinical_summarizer.main:app --reload --port 8734
 ```
 
 > **Nota:** Se estiver usando VSCode instalado via Snap, rode os comandos em um terminal externo.
 
+> A porta é configurável via `APP_PORT` no `.env` (default `8734`). Como o `uvicorn` via CLI não lê `APP_PORT` automaticamente, passe `--port` explicitamente ou rode com `python -m clinical_summarizer.main`, que usa a config.
+
 A API estará disponível em:
-- **Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
+- **Swagger UI:** http://localhost:8734/docs
+- **ReDoc:** http://localhost:8734/redoc
 
 ### Endpoints disponíveis
 
@@ -94,17 +103,18 @@ A API estará disponível em:
 | GET | `/patients/{patient_id}/evaluations` | Avaliações de todas as visitas de um paciente |
 | GET | `/patients/visits/{visit_id}` | Detalhes de uma visita |
 | POST | `/summaries` | Gera resumo clínico via LLM |
+| POST | `/etl/run` | Executa o pipeline ETL (Pentaho) manualmente |
 
 ### Exemplos de requisições
 
 #### Listar visitas de um paciente
 ```bash
-curl "http://localhost:8000/patients/899/visits?start_date=2022-10-01&end_date=2022-10-31"
+curl "http://localhost:8734/patients/899/visits?start_date=2022-10-01&end_date=2022-10-31"
 ```
 
 #### Obter avaliações de todas as visitas de um paciente
 ```bash
-curl "http://localhost:8000/patients/899/evaluations?start_date=2022-10-01&end_date=2022-10-31"
+curl "http://localhost:8734/patients/899/evaluations?start_date=2022-10-01&end_date=2022-10-31"
 ```
 
 Resposta:
@@ -130,12 +140,62 @@ Resposta:
 
 #### Gerar resumo clínico
 ```bash
-curl -X POST "http://localhost:8000/summaries" \
+curl -X POST "http://localhost:8734/summaries" \
   -H "Content-Type: application/json" \
   -d '{
     "patient_id": "899",
     "start_date": "2022-10-01",
     "end_date": "2022-10-31"
+  }'
+```
+
+Resposta: o resumo é retornado tanto em markdown (`summary_text`, para exibição simples)
+quanto estruturado por etapa em `sections`, para o frontend renderizar cada bloco
+separadamente. `section_labels` e `section_order` trazem os rótulos em português e a
+ordem de exibição recomendada, para não precisar hardcodar isso no cliente.
+
+```json
+{
+  "summary_id": "550e8400-e29b-41d4-a716-446655440000",
+  "patient_id": "f6e5d4c3b2a1...",
+  "summary_text": "## Resumo Clínico\n\n### Período Analisado\n...",
+  "sections": {
+    "periodo_analisado": "01/10/2022 a 31/10/2022",
+    "diagnosticos_cid": "J06.9 - Infecção respiratória aguda",
+    "historico_atendimentos": "Paciente atendido em 15/10 e 26/10...",
+    "sintomas_queixas_principais": "Febre, tosse...",
+    "observacoes_relevantes": "Recomenda-se acompanhamento..."
+  },
+  "section_labels": {
+    "periodo_analisado": "Período Analisado",
+    "diagnosticos_cid": "Diagnósticos (CID)",
+    "historico_atendimentos": "Histórico de Atendimentos",
+    "sintomas_queixas_principais": "Sintomas e Queixas Principais",
+    "observacoes_relevantes": "Observações Relevantes"
+  },
+  "section_order": [
+    "periodo_analisado",
+    "diagnosticos_cid",
+    "historico_atendimentos",
+    "sintomas_queixas_principais",
+    "observacoes_relevantes"
+  ],
+  "visit_count": 4,
+  "llm_model": "claude-sonnet-4-20250514",
+  "llm_total_tokens": 1500,
+  "generation_duration_ms": 2500,
+  "created_at": "2025-06-15T10:30:00"
+}
+```
+
+#### Executar o pipeline ETL manualmente
+```bash
+curl -X POST "http://localhost:8734/etl/run" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start_date": "2023-01-01",
+    "end_date": "2023-12-31",
+    "patient_id": 899
   }'
 ```
 
@@ -198,12 +258,14 @@ uv run ruff format src tests
 clinical-summarizer/
 ├── src/clinical_summarizer/
 │   ├── api/              # Endpoints FastAPI
-│   │   ├── routes/       # Routers (health, visits, summaries)
+│   │   ├── routes/       # Routers (health, visits, summaries, etl)
 │   │   └── schemas.py    # Schemas Pydantic
 │   ├── services/         # Lógica de negócio
 │   │   ├── visit_service.py
-│   │   └── summary_service.py  # RAG com Anthropic
-│   ├── repositories/     # Acesso a dados
+│   │   ├── etl_service.py          # Execução do pipeline Pentaho
+│   │   ├── summary_service.py      # RAG com Anthropic
+│   │   └── summary_sections.py     # Constantes e parsing das seções do resumo
+│   ├── repositories/     # Acesso a dados (patients, visits, summaries, etl_log)
 │   ├── models/           # Modelos de domínio
 │   ├── utils/            # Utilitários
 │   │   ├── hashing.py

@@ -256,7 +256,6 @@ def get_patient_evaluations(
                     cid_names=visit.cid_names,
                     clinical_evolutions=visit.clinical_evolutions,
                     sign_symptoms=visit.sign_symptoms,
-                    prescriptions=visit.prescriptions,
                     evaluation_types=visit.evaluation_types,
                     total_fields=parsed_sections.total_fields + parsed_questions.total_original,
                     total_filled_fields=parsed_sections.total_filled_fields + len(parsed_questions.questions),

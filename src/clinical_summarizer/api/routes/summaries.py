@@ -22,7 +22,15 @@ from clinical_summarizer.exceptions import (
     NoVisitsFoundError,
     PatientNotFoundError,
 )
-from clinical_summarizer.services import SummaryService, get_summary_service
+from clinical_summarizer.services import (
+    SUMMARY_CONTENT_SECTION_LABELS,
+    SUMMARY_CONTENT_SECTIONS,
+    SummaryService,
+    get_summary_service,
+    parse_summary_sections_safe,
+    parse_visit_periods_safe,
+    render_summary_markdown,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +93,17 @@ def generate_summary(
             run_etl=request.run_etl,
         )
 
+        sections = parse_summary_sections_safe(summary.summary_text)
+        visit_periods = parse_visit_periods_safe(summary.summary_text)
+
         return SummaryResponse(
             summary_id=summary.summary_id,
             patient_id=summary.patient_id,
-            summary_text=summary.summary_text,
+            summary_text=render_summary_markdown(sections),
+            sections=sections,
+            section_labels=SUMMARY_CONTENT_SECTION_LABELS,
+            section_order=list(SUMMARY_CONTENT_SECTIONS),
+            visit_periods=visit_periods,
             visit_count=len(summary.visit_ids_list),
             filter_start_date=summary.filter_start_date,
             filter_end_date=summary.filter_end_date,

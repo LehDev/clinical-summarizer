@@ -12,6 +12,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from clinical_summarizer.api.routes import etl_router, health_router, summaries_router, visits_router
 from clinical_summarizer.config import get_settings
@@ -73,6 +74,15 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# CORS - permite que o frontend (origem diferente) consuma a API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Registra routers
 app.include_router(health_router)
 app.include_router(visits_router)
@@ -87,6 +97,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "clinical_summarizer.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=get_settings().app_port,
         reload=True,
     )

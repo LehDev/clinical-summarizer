@@ -41,7 +41,6 @@ def sample_visit() -> Visit:
         cid_names="Infecção respiratória aguda;Influenza",
         clinical_evolutions="Paciente apresentou melhora",
         sign_symptoms="Febre, tosse, dor de garganta",
-        prescriptions="Dipirona 500mg",
         evaluations_raw='{"tipo": "consulta"}',
         evaluation_types="consulta",
         created_at=datetime(2025, 6, 15, 14, 30, 0),

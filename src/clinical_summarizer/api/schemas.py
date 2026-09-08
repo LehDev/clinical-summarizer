@@ -46,7 +46,6 @@ class VisitResponse(BaseModel):
     cid_names: str | None = None
     clinical_evolutions: str | None = None
     sign_symptoms: str | None = None
-    prescriptions: str | None = None
     evaluations_raw: str | None = None
     evaluation_types: str | None = None
     created_at: datetime | None = None
@@ -116,7 +115,6 @@ class VisitEvaluationResponse(BaseModel):
     cid_names: str | None = Field(default=None, description="Nomes dos CIDs")
     clinical_evolutions: str | None = Field(default=None, description="Evoluções clínicas")
     sign_symptoms: str | None = Field(default=None, description="Sinais e sintomas")
-    prescriptions: str | None = Field(default=None, description="Prescrições")
     evaluation_types: str | None = Field(default=None, description="Tipos de avaliação")
     total_fields: int = Field(default=0, description="Total de campos")
     total_filled_fields: int = Field(default=0, description="Total de campos preenchidos")
@@ -174,6 +172,26 @@ class PatientEvaluationsResponse(BaseModel):
     )
 
 
+class VisitPeriodResponse(BaseModel):
+    """
+    Schema de resposta para um período de visitas dentro do histórico.
+
+    Dado estruturado (não texto livre) para o frontend renderizar o
+    gráfico de distribuição de visitas sem depender de parsing de texto.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    label: str = Field(description="Rótulo curto do período")
+    start_date: date = Field(description="Data inicial do período")
+    end_date: date = Field(description="Data final do período")
+    visit_count: int = Field(description="Quantidade de visitas no período")
+    detail: str | None = Field(
+        default=None,
+        description="Destaque opcional de concentração de visitas em dia(s) específico(s)",
+    )
+
+
 class SummaryRequest(BaseModel):
     """
     Schema de request para geração de resumo clínico.
@@ -219,7 +237,44 @@ class SummaryResponse(BaseModel):
             "example": {
                 "summary_id": "550e8400-e29b-41d4-a716-446655440000",
                 "patient_id": "f6e5d4c3b2a1...",
-                "summary_text": "Paciente apresentou quadro de...",
+                "summary_text": "## Resumo Clínico\n\n### Período Analisado\n...",
+                "sections": {
+                    "periodo_analisado": "01/04/2023 a 30/04/2023",
+                    "diagnosticos_cid": "J06.9 - Infecção respiratória aguda",
+                    "historico_atendimentos": "Paciente atendido em...",
+                    "sintomas_queixas_principais": "Febre, tosse...",
+                    "observacoes_relevantes": "Recomenda-se acompanhamento...",
+                },
+                "section_labels": {
+                    "periodo_analisado": "Período Analisado",
+                    "diagnosticos_cid": "Diagnósticos (CID)",
+                    "historico_atendimentos": "Histórico de Atendimentos",
+                    "sintomas_queixas_principais": "Sintomas e Queixas Principais",
+                    "observacoes_relevantes": "Observações Relevantes",
+                },
+                "section_order": [
+                    "periodo_analisado",
+                    "diagnosticos_cid",
+                    "historico_atendimentos",
+                    "sintomas_queixas_principais",
+                    "observacoes_relevantes",
+                ],
+                "visit_periods": [
+                    {
+                        "label": "Primeira semana",
+                        "start_date": "2023-04-01",
+                        "end_date": "2023-04-06",
+                        "visit_count": 6,
+                        "detail": "concentração em 03/04 com 4 visitas",
+                    },
+                    {
+                        "label": "Segunda semana",
+                        "start_date": "2023-04-10",
+                        "end_date": "2023-04-13",
+                        "visit_count": 5,
+                        "detail": None,
+                    },
+                ],
                 "visit_count": 3,
                 "llm_model": "claude-sonnet-4-20250514",
                 "llm_total_tokens": 1500,
@@ -231,7 +286,28 @@ class SummaryResponse(BaseModel):
 
     summary_id: str = Field(description="UUID único do resumo")
     patient_id: str = Field(description="Hash do paciente")
-    summary_text: str = Field(description="Texto do resumo gerado")
+    summary_text: str = Field(
+        description="Texto do resumo gerado em markdown (para exibição simples/legado)"
+    )
+    sections: dict[str, str] = Field(
+        description=(
+            "Resumo estruturado por etapa (chave -> texto), para o frontend "
+            "renderizar cada seção separadamente"
+        )
+    )
+    section_labels: dict[str, str] = Field(
+        description="Rótulo em português de cada chave de `sections`, na mesma ordem de exibição"
+    )
+    section_order: list[str] = Field(
+        description="Ordem recomendada de exibição das chaves de `sections`"
+    )
+    visit_periods: list[VisitPeriodResponse] = Field(
+        default_factory=list,
+        description=(
+            "Distribuição estruturada de visitas por período dentro do mês "
+            "analisado, para o frontend renderizar o gráfico de histórico"
+        ),
+    )
     visit_count: int = Field(description="Quantidade de visitas usadas")
     filter_start_date: date = Field(description="Data inicial do filtro")
     filter_end_date: date = Field(description="Data final do filtro")

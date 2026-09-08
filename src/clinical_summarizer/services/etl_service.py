@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Configurações do Pentaho
 KITCHEN_PATH = "/home/salvus/pentaho/data-integration/kitchen.sh"
-JOB_PATH = "/home/salvus/pentaho/json_data/ETL_Pipeline.kjb"
+JOB_PATH = "/home/salvus/pentaho/data-integration/ETL_Pipeline.kjb"
 
 # Configurações de polling
 POLL_INTERVAL_SECONDS = 5
@@ -71,15 +71,15 @@ class ETLService:
         logger.info("Iniciando pipeline ETL às %s", started_at)
 
         # 1. Montar comando do kitchen.sh
-        cmd = [KITCHEN_PATH, "-file", JOB_PATH]
+        cmd = [KITCHEN_PATH, f"-file={JOB_PATH}"]
 
         # Adicionar parâmetros se fornecidos
         if start_date:
-            cmd.extend(["-param:START_DATE", start_date.isoformat()])
+            cmd.append(f"-param:START_DATE={start_date.isoformat()}")
         if end_date:
-            cmd.extend(["-param:END_DATE", end_date.isoformat()])
+            cmd.append(f"-param:END_DATE={end_date.isoformat()}")
         if patient_id:
-            cmd.extend(["-param:PATIENT_ID", str(patient_id)])
+            cmd.append(f"-param:PATIENT_ID={patient_id}")
 
         logger.info("Executando comando: %s", " ".join(cmd))
 

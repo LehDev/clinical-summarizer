@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     app_env: Literal["development", "staging", "production"] = "development"
     app_debug: bool = False
     app_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    app_port: int = 8734
+
+    # -------------------------------------------------------------------------
+    # CORS - origens do frontend autorizadas a consumir a API
+    # -------------------------------------------------------------------------
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
     # -------------------------------------------------------------------------
     # Google Gemini (opcional)
@@ -87,6 +93,11 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Retorna True se estiver em ambiente de desenvolvimento."""
         return self.app_env == "development"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Converte CORS_ORIGINS (string separada por vírgula) em lista."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 @lru_cache
