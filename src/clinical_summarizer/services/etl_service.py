@@ -19,8 +19,8 @@ from clinical_summarizer.repositories.etl_repository import (
 logger = logging.getLogger(__name__)
 
 # Configurações do Pentaho
-KITCHEN_PATH = "/home/salvus/pentaho/data-integration/kitchen.sh"
-JOB_PATH = "/home/salvus/pentaho/data-integration/ETL_Pipeline.kjb"
+KITCHEN_PATH = "/home/lehdev/pentaho/data-integration/kitchen.sh"
+JOB_PATH = "/home/lehdev/Documentos/PENTAHO/ETL_Pipeline.kjb"
 
 # Configurações de polling
 POLL_INTERVAL_SECONDS = 5
@@ -109,6 +109,10 @@ class ETLService:
 
         # 4. Aguardar processo terminar e capturar saída
         stdout, stderr = process.communicate(timeout=POLL_TIMEOUT_SECONDS)
+
+        logger.info("Pentaho stdout:\n%s", stdout)
+        if stderr:
+            logger.info("Pentaho stderr:\n%s", stderr)
 
         if process.returncode != 0:
             logger.error("Pipeline falhou com código %d", process.returncode)

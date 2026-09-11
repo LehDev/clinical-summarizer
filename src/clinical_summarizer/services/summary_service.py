@@ -48,17 +48,17 @@ _SUMMARY_JSON_EXAMPLE = json.dumps(
         VISIT_PERIODS_KEY: [
             {
                 "label": "Primeira semana",
-                "start_date": "2023-04-01",
-                "end_date": "2023-04-06",
-                "visit_count": 6,
-                "detail": "concentração em 03/04 com 4 visitas",
+                "days": [
+                    {"visit_date": "2023-04-01", "visit_count": 2},
+                    {"visit_date": "2023-04-03", "visit_count": 4},
+                ],
             },
             {
                 "label": "Segunda semana",
-                "start_date": "2023-04-10",
-                "end_date": "2023-04-13",
-                "visit_count": 5,
-                "detail": None,
+                "days": [
+                    {"visit_date": "2023-04-10", "visit_count": 3},
+                    {"visit_date": "2023-04-13", "visit_count": 2},
+                ],
             },
         ],
     },
@@ -87,19 +87,20 @@ código markdown), contendo exatamente estas chaves:
 - "{_VISIT_HISTORY}": {_LABEL[_VISIT_HISTORY]} (resumo cronológico das visitas)
 - "{_SYMPTOMS}": {_LABEL[_SYMPTOMS]} (sintomas relatados)
 - "{_OBSERVATIONS}": {_LABEL[_OBSERVATIONS]} (outros pontos importantes)
-- "{VISIT_PERIODS_KEY}": lista opcional de objetos com a distribuição de visitas
-  por período dentro do mês analisado, para o frontend renderizar um gráfico
-  (dado estruturado — não repita esses números como texto livre em
+- "{VISIT_PERIODS_KEY}": lista opcional de objetos agrupando, em períodos com
+  sentido clínico/temporal, os dias de visita já listados em "Distribuição de
+  Visitas por Dia" abaixo — para o frontend renderizar um gráfico (dado
+  estruturado — não repita esses números como texto livre em
   "{_VISIT_HISTORY}", apenas descreva o histórico normalmente lá).
-  Inclua sempre que houver mais de uma visita no período. Cada objeto deve
-  conter exatamente estas chaves:
+  Agrupe TODOS os dias com visita em algum período, sem deixar nenhum de
+  fora. Cada objeto deve conter exatamente estas chaves:
     - "label": rótulo curto do período (ex: "Primeira semana", "Início do mês");
       não precisa ser literalmente uma semana, use o que descrever melhor
-    - "start_date": data inicial do período, formato "AAAA-MM-DD"
-    - "end_date": data final do período, formato "AAAA-MM-DD"
-    - "visit_count": número inteiro de visitas nesse período
-    - "detail": texto curto opcional destacando concentração em dia(s)
-      específico(s) (ex: "concentração em 03/04 com 4 visitas"), ou null
+    - "days": lista de objetos {{"visit_date": "AAAA-MM-DD", "visit_count": N}},
+      um para cada dia do período — copie as datas e contagens exatamente
+      da "Distribuição de Visitas por Dia" informada, não invente nem
+      recalcule números (data inicial, final e total do período são
+      derivados automaticamente a partir desta lista)
 
 Cada valor de seção de texto deve ser uma string simples (use "\\n" para quebras
 de linha e "-" para listas).

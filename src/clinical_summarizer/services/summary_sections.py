@@ -62,20 +62,58 @@ _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
+class VisitDayCount:
+    """Quantidade de visitas em um dia específico dentro de um período."""
+
+    visit_date: date
+    visit_count: int
+
+    def to_dict(self) -> dict:
+        return {
+            "visit_date": self.visit_date.isoformat(),
+            "visit_count": self.visit_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "VisitDayCount":
+        return cls(
+            visit_date=date.fromisoformat(data["visit_date"]),
+            visit_count=int(data["visit_count"]),
+        )
+
+
+@dataclass(frozen=True)
 class VisitPeriod:
     """
-    Um período dentro do histórico de atendimentos, com sua contagem de visitas.
+    Um período dentro do histórico de atendimentos, com sua contagem de visitas
+    por dia.
 
     Campo estruturado consumido diretamente pelo frontend (ex: gráfico de
     distribuição de visitas) — evita depender de regex sobre o texto livre
     de `historico_atendimentos`, que pode variar de fraseado a cada geração.
+
+    `start_date`, `end_date` e `visit_count` são derivados de `days` em vez
+    de pedidos ao LLM diretamente: pedir pro modelo agrupar os dias (que já
+    recebe prontos no prompt) é confiável, mas pedir pra ele também somar e
+    calcular datas de início/fim é aritmética sujeita a erro — como no caso
+    de um período com `visit_count=6` cujo `detail` só citava 4 visitas de
+    um único dia, sem contabilizar o resto.
     """
 
     label: str
-    start_date: date
-    end_date: date
-    visit_count: int
-    detail: str | None = None
+    days: tuple[VisitDayCount, ...]
+
+    @property
+    def start_date(self) -> date:
+        return min(day.visit_date for day in self.days)
+
+    @property
+    def end_date(self) -> date:
+        return max(day.visit_date for day in self.days)
+
+    @property
+    def visit_count(self) -> int:
+        return sum(day.visit_count for day in self.days)
 
     def to_dict(self) -> dict:
         return {
@@ -83,18 +121,15 @@ class VisitPeriod:
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
             "visit_count": self.visit_count,
-            "detail": self.detail,
+            "days": [day.to_dict() for day in self.days],
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "VisitPeriod":
-        return cls(
-            label=str(data["label"]).strip(),
-            start_date=date.fromisoformat(data["start_date"]),
-            end_date=date.fromisoformat(data["end_date"]),
-            visit_count=int(data["visit_count"]),
-            detail=str(data["detail"]).strip() if data.get("detail") else None,
-        )
+        days = tuple(VisitDayCount.from_dict(day) for day in data["days"])
+        if not days:
+            raise ValueError("Período de visitas sem dias em 'days'")
+        return cls(label=str(data["label"]).strip(), days=days)
 
 
 def _extract_json(raw_text: str) -> dict:

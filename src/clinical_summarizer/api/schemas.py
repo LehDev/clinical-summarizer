@@ -172,12 +172,25 @@ class PatientEvaluationsResponse(BaseModel):
     )
 
 
+class VisitDayResponse(BaseModel):
+    """Schema de resposta para a quantidade de visitas em um dia específico."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    visit_date: date = Field(description="Data do dia")
+    visit_count: int = Field(description="Quantidade de visitas nesse dia")
+
+
 class VisitPeriodResponse(BaseModel):
     """
     Schema de resposta para um período de visitas dentro do histórico.
 
     Dado estruturado (não texto livre) para o frontend renderizar o
     gráfico de distribuição de visitas sem depender de parsing de texto.
+
+    `start_date`, `end_date` e `visit_count` são derivados de `days` (não
+    gerados diretamente pelo LLM), garantindo que sempre batam com a soma
+    e o intervalo real dos dias listados.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -186,9 +199,8 @@ class VisitPeriodResponse(BaseModel):
     start_date: date = Field(description="Data inicial do período")
     end_date: date = Field(description="Data final do período")
     visit_count: int = Field(description="Quantidade de visitas no período")
-    detail: str | None = Field(
-        default=None,
-        description="Destaque opcional de concentração de visitas em dia(s) específico(s)",
+    days: list[VisitDayResponse] = Field(
+        description="Quantidade de visitas por dia dentro do período"
     )
 
 
@@ -265,14 +277,20 @@ class SummaryResponse(BaseModel):
                         "start_date": "2023-04-01",
                         "end_date": "2023-04-06",
                         "visit_count": 6,
-                        "detail": "concentração em 03/04 com 4 visitas",
+                        "days": [
+                            {"visit_date": "2023-04-01", "visit_count": 2},
+                            {"visit_date": "2023-04-03", "visit_count": 4},
+                        ],
                     },
                     {
                         "label": "Segunda semana",
                         "start_date": "2023-04-10",
                         "end_date": "2023-04-13",
                         "visit_count": 5,
-                        "detail": None,
+                        "days": [
+                            {"visit_date": "2023-04-10", "visit_count": 3},
+                            {"visit_date": "2023-04-13", "visit_count": 2},
+                        ],
                     },
                 ],
                 "visit_count": 3,
