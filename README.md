@@ -152,7 +152,11 @@ curl -X POST "http://localhost:8734/summaries" \
 Resposta: o resumo é retornado tanto em markdown (`summary_text`, para exibição simples)
 quanto estruturado por etapa em `sections`, para o frontend renderizar cada bloco
 separadamente. `section_labels` e `section_order` trazem os rótulos em português e a
-ordem de exibição recomendada, para não precisar hardcodar isso no cliente.
+ordem de exibição recomendada, para não precisar hardcodar isso no cliente. `visit_periods`
+traz a distribuição de visitas por período (e, dentro de cada período, por dia em `days`)
+como dado estruturado, para o frontend montar o gráfico de histórico sem depender de
+parsing de texto — `start_date`, `end_date` e `visit_count` de cada período são somas/
+limites derivados de `days`, não gerados diretamente pelo LLM.
 
 ```json
 {
@@ -180,7 +184,29 @@ ordem de exibição recomendada, para não precisar hardcodar isso no cliente.
     "sintomas_queixas_principais",
     "observacoes_relevantes"
   ],
+  "visit_periods": [
+    {
+      "label": "Primeira semana",
+      "start_date": "2022-10-15",
+      "end_date": "2022-10-15",
+      "visit_count": 1,
+      "days": [
+        {"visit_date": "2022-10-15", "visit_count": 1}
+      ]
+    },
+    {
+      "label": "Última semana",
+      "start_date": "2022-10-26",
+      "end_date": "2022-10-26",
+      "visit_count": 3,
+      "days": [
+        {"visit_date": "2022-10-26", "visit_count": 3}
+      ]
+    }
+  ],
   "visit_count": 4,
+  "filter_start_date": "2022-10-01",
+  "filter_end_date": "2022-10-31",
   "llm_model": "claude-sonnet-4-20250514",
   "llm_total_tokens": 1500,
   "generation_duration_ms": 2500,
