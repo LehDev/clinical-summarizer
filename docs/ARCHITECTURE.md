@@ -7,30 +7,35 @@ referência técnica para a banca e futuros desenvolvedores.
 
 O **Clinical Summarizer** é um serviço Python que:
 
-1. Lê dados clínicos anonimizados de um PostgreSQL (camada Gold do pipeline ETL)
-2. Aplica transformações (correção de encoding, parsing de JSON)
-3. Gera resumos clínicos automatizados via Google Gemini (LLM)
-4. Persiste os resumos e logs de execução
+1. Opcionalmente aciona o pipeline ETL (Pentaho Kitchen) para atualizar a
+   camada Gold com dados clínicos anonimizados
+2. Lê esses dados de um PostgreSQL
+3. Aplica transformações (correção de encoding, parsing de JSON/avaliações)
+4. Gera resumos clínicos estruturados via LLM (Anthropic Claude)
+5. Persiste os resumos e logs de execução do ETL
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      API Layer (FastAPI)                    │
-│              Endpoints, validação de entrada                │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                    Service Layer                            │
-│         Orquestração, regras de negócio, chamada LLM        │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                  Repository Layer                           │
-│           Acesso a dados, queries, connection pool          │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                     PostgreSQL                              │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                    API Layer (FastAPI)                     │
+│              Endpoints, validação de entrada               │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────┐
+│                       Service Layer                          │
+│      Orquestração, regras de negócio, ETL (Pentaho), LLM     │
+└──────────┬─────────────────────────────────────┬─────────────┘
+           │                                     │
+┌──────────▼──────────────┐          ┌───────────▼───────────────┐
+│    Repository Layer      │          │   Anthropic Claude API    │
+│  Acesso a dados,          │          │   (geração de resumos)    │
+│  connection pool          │          └────────────────────────────┘
+└──────────┬────────────────┘
+           │
+┌──────────▼─────────────────────┐     ┌──────────────────────────────┐
+│           PostgreSQL            │◄────│  Pentaho Kitchen (kitchen.sh)│
+│  patients, visits, summaries,   │     │  subprocess + polling na      │
+│  etl_logs                       │     │  tabela etl_logs              │
+└──────────────────────────────────┘     └──────────────────────────────┘
 ```
 
 ---
@@ -133,22 +138,94 @@ caso o avaliador não tenha uv instalado.
 
 ---
 
-### 5. Estrutura de Pastas
+### 5. Geração de Resumos: Anthropic Claude com saída estruturada em JSON
+
+**Decisão:** `SummaryService` chama a API do Anthropic Claude
+(`anthropic_model`, configurável via `.env`) com um `SYSTEM_PROMPT` que
+força o modelo a responder **apenas** com um objeto JSON (sem markdown,
+sem texto livre), contendo uma chave por seção do resumo
+(`services/summary_sections.py::SummarySection`) mais uma chave estruturada
+`periodos_visitas` com a distribuição de visitas por período/dia.
+
+**Justificativa:**
+
+- Texto livre exigiria parsing por regex no backend (frágil) ou no frontend
+  (acopla o frontend ao fraseado do modelo). JSON estruturado remove essa
+  fragilidade e dá ao frontend um contrato estável (`sections`,
+  `section_labels`, `section_order`, `visit_periods`).
+- **Datas/contagens não são confiadas ao LLM para aritmética:** o prompt
+  já informa a distribuição de visitas por dia calculada em Python
+  (`_format_visits_by_day`); o modelo só precisa *agrupar* esses dias em
+  períodos com sentido clínico (`VisitPeriod.days`). `start_date`,
+  `end_date` e `visit_count` de cada período são **derivados** de `days`
+  (propriedades calculadas, não campos que o LLM preenche diretamente) —
+  evita o caso observado de um período `visit_count=6` cujo texto livre só
+  citava 4 visitas de um único dia, sem contabilizar o resto.
+- Entradas malformadas em `periodos_visitas` são descartadas
+  individualmente (`parse_visit_periods_safe`) sem invalidar o resumo
+  inteiro — o LLM é uma fonte não confiável por natureza.
+- O resultado (seções + períodos) é persistido como JSON em
+  `summaries.summary_text`, então a resposta da API é reconstruída a
+  partir do banco sem precisar rechamar o LLM.
+
+**Tratamento de erros:** falhas de conexão ou geração viram
+`LLMConnectionError`/`LLMGenerationError` (ver seção de exceções), e a
+ausência de visitas no período vira `NoVisitsFoundError` antes mesmo de
+chamar o LLM.
+
+---
+
+### 6. Atualização de Dados: Pipeline ETL Pentaho acionado via subprocess
+
+**Decisão:** Quando `run_etl=true` (padrão em `POST /summaries`, ou via
+`POST /etl/run`), `ETLService.run_pipeline()` invoca o `kitchen.sh`
+(Pentaho Data Integration) como subprocesso (`subprocess.Popen`) passando
+`START_DATE`/`END_DATE`/`PATIENT_ID` como parâmetros do job, e faz
+*polling* na tabela `etl_logs` (a cada `POLL_INTERVAL_SECONDS`, até
+`POLL_TIMEOUT_SECONDS` = 5 min) até encontrar o registro de conclusão.
+
+**Justificativa:**
+
+- O pipeline Gold já existe em Pentaho (fora do escopo deste serviço);
+  reescrevê-lo em Python não se justificava para o TCC.
+- Rodar de forma síncrona (a requisição aguarda o `communicate()` do
+  processo) simplifica o fluxo: o cliente sabe que os dados estão
+  atualizados antes do resumo ser gerado, sem precisar de webhook/callback.
+- O polling na tabela `etl_logs` (em vez de só checar o exit code do
+  processo) permite capturar métricas de negócio (registros extraídos/
+  carregados) que o Pentaho grava no banco, não no stdout.
+- **Trade-off aceito:** os caminhos do Pentaho (`KITCHEN_PATH`, `JOB_PATH`
+  em `services/etl_service.py`) são absolutos e fixos no código-fonte,
+  amarrados à máquina onde o Pentaho está instalado — aceitável para o
+  escopo do TCC (ambiente único de demonstração), mas seria o primeiro
+  ponto a mover para variável de ambiente numa evolução do projeto.
+- Se o ETL falhar, o resumo ainda é gerado com os dados já existentes no
+  banco (falha do ETL é logada como warning, não interrompe o fluxo) —
+  prioriza disponibilidade sobre garantir dado sempre fresco.
+
+---
+
+### 7. Estrutura de Pastas
 
 ```
 clinical-summarizer/
 ├── src/
 │   └── clinical_summarizer/
-│       ├── api/              # Camada de apresentação
-│       │   ├── routes/       # Endpoints organizados por recurso
-│       │   ├── schemas.py    # Modelos Pydantic (request/response)
+│       ├── api/                  # Camada de apresentação
+│       │   ├── routes/           # Endpoints por recurso (health, visits, summaries, etl)
+│       │   ├── schemas.py        # Modelos Pydantic (request/response)
 │       │   └── dependencies.py
-│       ├── services/         # Lógica de negócio
-│       ├── repositories/     # Acesso a dados
-│       ├── models/           # Modelos de domínio (dataclasses)
-│       ├── config.py         # Configurações
-│       ├── exceptions.py     # Exceções customizadas
-│       └── main.py           # Entrypoint FastAPI
+│       ├── services/             # Lógica de negócio
+│       │   ├── visit_service.py
+│       │   ├── etl_service.py        # Orquestração do pipeline Pentaho
+│       │   ├── summary_service.py    # RAG com Anthropic Claude
+│       │   └── summary_sections.py   # Contrato/parsing das seções do resumo
+│       ├── repositories/         # Acesso a dados (patients, visits, summaries, etl_log)
+│       ├── models/               # Modelos de domínio (dataclasses)
+│       ├── utils/                # Utilitários (hashing, parsing de avaliações)
+│       ├── config.py             # Configurações
+│       ├── exceptions.py         # Exceções customizadas
+│       └── main.py               # Entrypoint FastAPI
 ├── tests/
 │   ├── unit/                 # Testes unitários
 │   └── integration/          # Testes de integração (futuro)
@@ -162,7 +239,7 @@ clinical-summarizer/
 
 ---
 
-### 6. Tratamento de Erros
+### 8. Tratamento de Erros
 
 **Decisão:** Hierarquia de exceções customizadas mapeadas para HTTP.
 
@@ -174,19 +251,25 @@ ClinicalSummarizerError (base)
 ├── NotFoundError → 404
 │   ├── PatientNotFoundError
 │   └── VisitNotFoundError
-└── ValidationError → 422
-    └── InvalidDateRangeError
+├── ValidationError → 422
+│   ├── InvalidDateRangeError
+│   └── NoVisitsFoundError    # nenhuma visita no período pedido
+└── LLMError → 503
+    ├── LLMConnectionError    # falha ao conectar/autenticar na Anthropic
+    └── LLMGenerationError    # resposta do LLM não é um JSON válido, etc.
 ```
 
 **Justificativa:**
 - Exceções de domínio desacopladas de HTTP
-- Mapeamento centralizado na camada de API
+- Mapeamento centralizado na camada de API (`routes/summaries.py`, por
+  exemplo, converte `NoVisitsFoundError`/`InvalidDateRangeError` em 404/422
+  e `LLMError` em 503 — ver tabela de status HTTP nos exemplos do README)
 - Facilita testes (pode verificar exceção específica)
 - Mensagens de erro claras para debugging
 
 ---
 
-### 7. Testes
+### 9. Testes
 
 **Decisão:** pytest com mocks para testes unitários.
 
@@ -214,7 +297,7 @@ tests/
 
 ---
 
-### 8. Ferramentas de Qualidade
+### 10. Ferramentas de Qualidade
 
 | Ferramenta | Propósito |
 |------------|-----------|
@@ -231,6 +314,8 @@ tests/
 
 ## Fluxo de uma Requisição
 
+### Fluxo de consulta de visitas
+
 ```
 GET /patients/abc123/visits?start_date=2025-01-01&end_date=2025-12-31
 
@@ -245,6 +330,32 @@ GET /patients/abc123/visits?start_date=2025-01-01&end_date=2025-12-31
 6. Service retorna lista de Visit (modelos de domínio)
 7. API converte para VisitResponse (schema Pydantic)
 8. FastAPI serializa JSON e retorna
+```
+
+### Fluxo de geração de resumo clínico (fluxo principal)
+
+```
+POST /summaries  {"patient_id": "899", "start_date": "...", "end_date": "...", "run_etl": true}
+
+1. FastAPI recebe requisição, Pydantic valida o body (SummaryRequest)
+2. SummaryService.generate_summary():
+   a. (se run_etl=true) ETLService.run_pipeline() aciona o kitchen.sh (Pentaho)
+      e faz polling em etl_logs até concluir ou estourar o timeout de 5 min;
+      falha aqui só gera warning no log, não interrompe o fluxo
+   b. VisitService busca as visitas do paciente no período (Postgres)
+      → sem visitas, levanta NoVisitsFoundError (422)
+   c. Monta o prompt: distribuição de visitas por dia (calculada em Python)
+      + dados de cada visita (CIDs, sintomas, evolução clínica)
+   d. Chama a API da Anthropic (client.messages.create) com o SYSTEM_PROMPT
+      que exige resposta em JSON estruturado
+      → erro de conexão/geração vira LLMConnectionError/LLMGenerationError (503)
+   e. Faz o parse do JSON: seções de texto (parse_summary_sections) e
+      distribuição de visitas por período (parse_visit_periods, que
+      descarta entradas malformadas sem falhar o resumo inteiro)
+   f. Persiste o resumo (seções + períodos serializados em JSON) na tabela
+      summaries via SummaryRepository
+3. API monta SummaryResponse (sections, section_labels, section_order,
+   visit_periods, metadados de tokens/tempo) e retorna 201
 ```
 
 ---
@@ -278,9 +389,26 @@ Variáveis obrigatórias (`.env`):
 |----------|-----------|
 | `POSTGRES_USER` | Usuário do banco |
 | `POSTGRES_PASSWORD` | Senha do banco |
-| `POSTGRES_HOST` | Host (default: localhost) |
-| `POSTGRES_PORT` | Porta (default: 5432) |
-| `POSTGRES_DB` | Nome do banco (default: clinical_data) |
+
+Variáveis opcionais, com default (`config.py`):
+
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `POSTGRES_HOST` | `localhost` | Host do Postgres |
+| `POSTGRES_PORT` | `5432` | Porta do Postgres |
+| `POSTGRES_DB` | `clinical_data` | Nome do banco |
+| `POSTGRES_POOL_MIN_SIZE` / `POSTGRES_POOL_MAX_SIZE` | `2` / `10` | Tamanho do connection pool |
+| `APP_ENV` | `development` | `development` \| `staging` \| `production` |
+| `APP_PORT` | `8734` | Porta da API (uvicorn via CLI não lê essa var — ver README) |
+| `APP_LOG_LEVEL` | `INFO` | Nível de log |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Origens do frontend liberadas no CORS (separadas por vírgula) |
+| `ANTHROPIC_API_KEY` | — | **Obrigatória para `POST /summaries`** — sem ela, `SummaryService` levanta `LLMConnectionError` |
+| `ANTHROPIC_MODEL` | `claude-3-5-sonnet-20241022` | Modelo usado na geração de resumos |
+| `ANTHROPIC_TEMPERATURE` | `0.3` | Temperatura da geração |
+| `ANTHROPIC_MAX_TOKENS` | `4096` | Limite de tokens de saída |
+
+O ETL (Pentaho) não é configurado via `.env` — os caminhos do `kitchen.sh` e
+do job estão fixos em `services/etl_service.py` (ver decisão 6, acima).
 
 ---
 
@@ -314,4 +442,5 @@ uv run ruff format src tests
 - [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
 - [psycopg3 Documentation](https://www.psycopg.org/psycopg3/docs/)
 - [uv Documentation](https://docs.astral.sh/uv/)
+- [Anthropic Claude API (Messages)](https://docs.anthropic.com/)
 - [Layered Architecture Pattern](https://www.oreilly.com/library/view/software-architecture-patterns/9781491971437/)

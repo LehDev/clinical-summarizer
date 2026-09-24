@@ -10,9 +10,17 @@ from clinical_summarizer.repositories.base import (
     get_pool,
     init_pool,
 )
+from clinical_summarizer.repositories.etl_repository import (
+    ETLRepository,
+    get_etl_repository,
+)
 from clinical_summarizer.repositories.patient_repository import (
     PatientRepository,
     get_patient_repository,
+)
+from clinical_summarizer.repositories.summary_repository import (
+    SummaryRepository,
+    get_summary_repository,
 )
 from clinical_summarizer.repositories.visit_repository import (
     VisitRepository,
@@ -26,8 +34,12 @@ __all__ = [
     "get_pool",
     "get_connection",
     # Repositórios
+    "ETLRepository",
     "PatientRepository",
+    "SummaryRepository",
     "VisitRepository",
+    "get_etl_repository",
     "get_patient_repository",
+    "get_summary_repository",
     "get_visit_repository",
 ]

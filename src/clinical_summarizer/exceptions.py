@@ -123,3 +123,40 @@ class InvalidDateRangeError(ValidationError):
 
     def __init__(self, message: str = "Intervalo de datas inválido"):
         super().__init__(message)
+
+
+# =============================================================================
+# Exceções de LLM
+# =============================================================================
+
+
+class LLMError(ClinicalSummarizerError):
+    """Erro genérico relacionado ao LLM."""
+
+    def __init__(self, message: str = "Erro no serviço de LLM"):
+        super().__init__(message)
+
+
+class LLMConnectionError(LLMError):
+    """Falha ao conectar com a API do LLM."""
+
+    def __init__(self, message: str = "Não foi possível conectar ao LLM"):
+        super().__init__(message)
+
+
+class LLMGenerationError(LLMError):
+    """Erro durante geração de texto pelo LLM."""
+
+    def __init__(self, message: str = "Erro ao gerar texto"):
+        super().__init__(message)
+
+
+class NoVisitsFoundError(ValidationError):
+    """Nenhuma visita encontrada para gerar resumo."""
+
+    def __init__(self, patient_id: str, start_date: str, end_date: str):
+        self.patient_id = patient_id
+        super().__init__(
+            f"Nenhuma visita encontrada para paciente {patient_id} "
+            f"entre {start_date} e {end_date}"
+        )

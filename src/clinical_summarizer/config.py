@@ -54,11 +54,25 @@ class Settings(BaseSettings):
     app_env: Literal["development", "staging", "production"] = "development"
     app_debug: bool = False
     app_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    app_port: int = 8734
 
     # -------------------------------------------------------------------------
-    # Google Gemini (opcional por enquanto, será usado em fases futuras)
+    # CORS - origens do frontend autorizadas a consumir a API
+    # -------------------------------------------------------------------------
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+
+    # -------------------------------------------------------------------------
+    # Google Gemini (opcional)
     # -------------------------------------------------------------------------
     google_api_key: str | None = None
+
+    # -------------------------------------------------------------------------
+    # Anthropic Claude (para geração de resumos)
+    # -------------------------------------------------------------------------
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-3-5-sonnet-20241022"
+    anthropic_temperature: float = 0.3
+    anthropic_max_tokens: int = 4096
 
     @property
     def postgres_dsn(self) -> str:
@@ -79,6 +93,11 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Retorna True se estiver em ambiente de desenvolvimento."""
         return self.app_env == "development"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Converte CORS_ORIGINS (string separada por vírgula) em lista."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 @lru_cache
