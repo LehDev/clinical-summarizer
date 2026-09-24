@@ -60,18 +60,28 @@ pip install -e .
    POSTGRES_PORT=5432
    POSTGRES_DB=clinical_data
 
+   # Pool de conexões (opcional)
+   POSTGRES_POOL_MIN_SIZE=2
+   POSTGRES_POOL_MAX_SIZE=10
+
    # Aplicação
+   APP_ENV=development
+   APP_DEBUG=true
+   APP_LOG_LEVEL=INFO
    APP_PORT=8734
 
    # Origens do frontend autorizadas a consumir a API (CORS, separadas por vírgula)
    CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
-   # Anthropic Claude (obrigatório para geração de resumos)
+   # Anthropic Claude (obrigatório para geração de resumos via POST /summaries)
    ANTHROPIC_API_KEY=sua_api_key_aqui
-   ANTHROPIC_MODEL=claude-sonnet-4-20250514
+   ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
    ANTHROPIC_TEMPERATURE=0.3
    ANTHROPIC_MAX_TOKENS=4096
    ```
+
+   Veja `.env.example` para a lista completa (inclui `GOOGLE_API_KEY`, não
+   utilizada atualmente — reservada para uma integração futura).
 
 ## Uso
 
@@ -207,7 +217,7 @@ limites derivados de `days`, não gerados diretamente pelo LLM.
   "visit_count": 4,
   "filter_start_date": "2022-10-01",
   "filter_end_date": "2022-10-31",
-  "llm_model": "claude-sonnet-4-20250514",
+  "llm_model": "claude-3-5-sonnet-20241022",
   "llm_total_tokens": 1500,
   "generation_duration_ms": 2500,
   "created_at": "2025-06-15T10:30:00"
